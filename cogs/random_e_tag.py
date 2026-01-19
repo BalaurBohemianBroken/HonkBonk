@@ -5,6 +5,7 @@ from re import search
 import re
 import helpers
 
+
 class sinner(commands.Cog, name="sinner"):
     prefix = "e"
 
