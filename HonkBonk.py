@@ -77,6 +77,7 @@ class MyBot(commands.Bot):
 
         await self.load_extension("cogs.core")
         await self.load_extension("cogs.vc")
+        await self.load_extension("cogs.random_e_tag")
         # self.load_extension("cogs.name_history")
         await self.load_extension("cogs.message_reactions")
         # self.load_extension("cogs.word")

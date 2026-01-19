@@ -1,9 +1,9 @@
 import requests
 from random import randint
 from discord.ext import commands
-from discord import File as dFile
 from re import search
-import os
+import re
+import helpers
 
 class sinner(commands.Cog, name="sinner"):
     prefix = "e"
@@ -21,10 +21,10 @@ class sinner(commands.Cog, name="sinner"):
 
     @commands.command(name=f"{prefix}.idea")
     async def give_drawing_idea(self, ctx):
-        if not await self.bot.has_perm(ctx, admin=False, dm=True): return
-        species = self.bot.get_variable(ctx.message.content, key="species", type="keyword", default=False)
-        char = self.bot.get_variable(ctx.message.content, key="character", type="keyword", default=False)
-        tag = self.bot.get_variable(ctx.message.content, key="tag", type="keyword", default=False)
+        if not await self.bot.has_perm(ctx, dm=True): return
+        species = "species" in ctx.message.content.lower()
+        char = "character" in ctx.message.content.lower()
+        tag = "tag" in ctx.message.content.lower()
 
         cat = None
         if species:
@@ -48,35 +48,11 @@ class sinner(commands.Cog, name="sinner"):
         response = response.replace("_", "\\_")
         await ctx.send(response)
 
-    @commands.command(name=f"{prefix}.comic")
-    async def get_comic(self, ctx):
-        if ctx.message.author.id not in [565879875647438851, 411365470109958155]:
-            return
-        page_num = int(self.bot.get_variable(ctx.message.content, type="int", default=1)) - 1
-
-        user_agent = self.user_agent
-        pool_id = 20047
-        params = {"search[id]": pool_id}
-
-        res = requests.get('https://e621.net/pools.json', headers=user_agent, params=params).json()
-        try:
-            page_id = res[0]["post_ids"][page_num]
-        except IndexError:
-            await ctx.send("No page found!")
-            return
-
-        res = requests.get(f"https://e621.net/posts/{page_id}", headers=user_agent)
-        img_url = search(r"""<img id.+?src="(.+?)\"""", res.text).group(1)
-        img_data = requests.get(img_url)
-        with open("attachments/comic.png", "wb") as f:
-            f.write(img_data.content)
-        await ctx.send(file=dFile("attachments/comic.png"))
-        os.remove("attachments/comic.png")
-
     @commands.command(name=f"{prefix}.sentence")
     async def run_on_sentence(self, ctx):
-        if not await self.bot.has_perm(ctx, admin=False, dm=True): return
-        num_words = int(self.bot.get_variable(ctx.message.content, type="int", default=3))
+        if not await self.bot.has_perm(ctx, dm=True): return
+        re_result = re.match(r"c\.e\.sentence( \d+)?", ctx.message.content)  # TODO: Rough fix.
+        num_words = 3 if not re_result.group(1) else int(re_result.group(1))
         num_words = min(num_words, 20)
 
         self.bot.cursor.execute("SELECT COUNT(*) FROM e6_tags")
@@ -115,13 +91,13 @@ class sinner(commands.Cog, name="sinner"):
         valid_tags = []
         valid_aliases = []
 
-        tag_post_limit = int(self.bot.get_variable(ctx.message.content, type="int", default=100))
-        re_result = search(r"c\.e\.search ([^ \n]+)", ctx.message.content)
-        if not re_result:
+        re_result = re.match(r"c\.e\.search(?: ([^ \n]+))?(?: (\d+))?", ctx.message.content)  # TODO: Rough fix.
+        if not re_result.group(1):
             await ctx.send("give. me. a. tag.")
             return
-        search_tag = re_result.group(1)
 
+        search_tag = re_result.group(1)
+        tag_post_limit = 100 if not re_result.group(2) else int(re_result.group(2))
         # Get matching tags.
         params = {"search[name_matches]": f"*{search_tag}*", "limit": 20, "page": 1, "search[order]": "count"}
         res = requests.get("https://e621.net/tags.json", headers=self.user_agent, params=params).json()
@@ -152,7 +128,7 @@ class sinner(commands.Cog, name="sinner"):
     async def search_for_tag_help(self, ctx):
         if not await self.bot.has_perm(ctx, dm=True): return
         docstring = """
-        ```Search for tags! This does not search for aliases of tags.
+        Search for tags! This does not search for aliases of tags.
         Will return up to 20 tags, ordered by number of posts with this tag.
         
         Arguments:
@@ -161,58 +137,58 @@ class sinner(commands.Cog, name="sinner"):
 
         Examples:
             c.e.search owo
-            c.e.search pidge 50```
+            c.e.search pidge 50
         """
-        docstring = self.bot.remove_indentation(docstring)
-        await ctx.send(docstring)
+        docstring = helpers.help_command_embed(self.bot, docstring)
+        await ctx.send(embed=docstring)
 
     @commands.command(name=f"{prefix}.idea.help")
     async def drawing_idea_help(self, ctx):
         if not await self.bot.has_perm(ctx, dm=True): return
         docstring = """
-            ```Returns a random drawing idea! Normally SFW!
+            Returns a random drawing idea! Normally SFW!
             Can be provided with one of the following keywords to narrow the search:
             species; character; tag;
             
             Examples:
                 c.e.idea
                 c.e.idea species
-                c.e.idea tag```
+                c.e.idea tag
             """
-        docstring = self.bot.remove_indentation(docstring)
-        await ctx.send(docstring)
+        docstring = helpers.help_command_embed(self.bot, docstring)
+        await ctx.send(embed=docstring)
 
     @commands.command(name=f"{prefix}.sentence.help")
     async def furry_sentence_help(self, ctx):
         if not await self.bot.has_perm(ctx, dm=True): return
         docstring = """
-            ```Construct a furry sentence!
+            Construct a furry sentence!
             Type a number afterwards to determine how many words are used!
             
             Examples:
                 c.e.sentence
-                c.e.sentence 5```
+                c.e.sentence 5
             """
-        docstring = self.bot.remove_indentation(docstring)
-        await ctx.send(docstring)
+        docstring = helpers.help_command_embed(self.bot, docstring)
+        await ctx.send(embed=docstring)
 
     @commands.command(name=f"{prefix}.tag_count.help", aliases=[f"{prefix}.count.help"])
     async def num_with_tag_help(self, ctx):
         if not await self.bot.has_perm(ctx, dm=True): return
         docstring = """
-            ```Check how many entries on an unspecified site this tag has!
+            Check how many entries on an unspecified site this tag has!
     
             Examples:
                 c.e.tag_count cervid
-                c.e.count :d```
+                c.e.count :d
             """
-        docstring = self.bot.remove_indentation(docstring)
-        await ctx.send(docstring)
+        docstring = helpers.help_command_embed(self.bot, docstring)
+        await ctx.send(embed=docstring)
 
     @commands.command(name=f"{prefix}.help")
     async def vc_help(self, ctx):
         if not await self.bot.has_perm(ctx, dm=True): return
-        desc = "Accesses the API of an unspecified website to get *you* the tags you need."
+        desc = "Accesses the API of an unspecified website to get *you* the tags you need.\nReally, you should only use this in nsfw channels though.\nWarning you."
         await ctx.send(embed=self.bot.create_help(self.help_text, help_description=desc))
 
     def db_fill(self, category=4, post_limit=400):
@@ -299,10 +275,10 @@ class sinner(commands.Cog, name="sinner"):
         cursor.execute("commit")
 
 
-def setup(bot):
+async def setup(bot):
     bot.core_help_text["modules"] += ["e"]
-    bot.add_cog(sinner(bot))
+    await bot.add_cog(sinner(bot))
 
-def teardown(bot):
-    bot.core_help_text["modules"].remove("e")
-    bot.remove_cog(sinner(bot))
+# def teardown(bot):
+#     bot.core_help_text["modules"].remove("e")
+#     bot.remove_cog(sinner(bot))
