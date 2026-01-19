@@ -13,9 +13,11 @@ from random import shuffle
 import aiohttp
 import typing
 from typing import List
-from yt_dlp import YoutubeDL
 from pathlib import Path
 import subprocess
+import sys
+
+# TODO: Allow it to pull from my foobar playlists.
 
 
 class VoiceChannels(commands.Cog, name="voice_channels"):
@@ -98,12 +100,25 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
             await ctx.send("Couldn't find a URL!")
             return
 
+        # If it's a youtube video, make it a YouTubeItem.
+        if re.search(r"youtu\.be\/|youtube(?:-nocookie)?\.com", first_url.group(1)):
+            await self.play_youtube_video(ctx, first_url.group(1), current_vc, pos)
+            return
+
+        # Else, load it as a generic.
+        # TODO: This.
+
+
+        await ctx.send("Couldn't find a URL!")
+
+    async def play_youtube_video(self, ctx, url, current_vc, pos):
         youtube_video_match = re.match(
-                r"""(?:https:\/\/)?(?:[0-9A-Za-z-]+\.)?(?:youtu\.be\/|youtube(?:-nocookie)?\.com\S*?[^\w\s-])([\w-]{11})(?=[^\w-]|$)(?![?=&+%\w.-]*(?:['"][^<>]*>|<\/a>))[?=&+%\w.-]*""",
-                first_url.group(1))
+            r"""(?:https:\/\/)?(?:[0-9A-Za-z-]+\.)?(?:youtu\.be\/|youtube(?:-nocookie)?\.com\S*?[^\w\s-])([\w-]{11})(?=[^\w-]|$)(?![?=&+%\w.-]*(?:['"][^<>]*>|<\/a>))[?=&+%\w.-]*""",
+            url.group(1))
 
         if youtube_video_match and youtube_video_match.group(1):
-            item = await YouTubeItem.create_from_video_ids(ctx.author.display_name, self.yt_api_key, [youtube_video_match.group(1)], self.session)
+            item = await YouTubeItem.create_from_video_ids(ctx.author.display_name, self.yt_api_key,
+                                                           [youtube_video_match.group(1)], self.session)
             if not item:
                 await ctx.send("couldn't find that video :(")
                 return
@@ -114,10 +129,10 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
             await ctx.send(embed=embed)
             return
 
-        youtube_playlist_match = re.search(r'playlist\?list=([^>]+)', first_url.group(1))
+        youtube_playlist_match = re.search(r'playlist\?list=([^>]+)', url.group(1))
         if youtube_playlist_match and youtube_playlist_match.group(1):
             playlist_items = await YouTubeItem.create_from_playlist_id(ctx.author.display_name, self.yt_api_key,
-                                                                        youtube_playlist_match.group(1), self.session)
+                                                                       youtube_playlist_match.group(1), self.session)
             if not playlist_items:
                 await ctx.send("Cannot find a playlist with the provided URL D:")
                 return
@@ -1091,32 +1106,21 @@ class ServerAudio:
             return
         self.downloading = True
         # Dispatch a download worker.
-        asyncio.run_coroutine_threadsafe(self.download_youtube_item(item), self.async_loop)
+        asyncio.run_coroutine_threadsafe(self.download_worker(item), self.async_loop)
         while self.downloading:
             await asyncio.sleep(0.1)
 
-    async def download_youtube_item(self, item: YouTubeItem) -> None:
+    async def download_worker(self, item: YouTubeItem) -> None:
         self.update_embed = helpers.default_embed()  # Downloading embed.
         self.update_embed = embed_downloading(self.update_embed, item, 0)
         self.update_message = await self.message_channel.send(embed=self.update_embed)
 
-        params = {
-            "progress_hooks": [self.progress_hook],
-            "paths": {"home": str(self.downloads_folder)},
-            'format': 'm4a/bestaudio/best',
-            'postprocessors': [{  # Extract audio using ffmpeg
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'm4a',
-            }],
-            #"quiet": True,
-            "outtmpl": {"default": f"%(title)s.%(ext)s"},
-            "overwrites": True
-        }
         try:
-            with YoutubeDL(params) as ydl:
-                ydl.download([item.url])
+            file_path = self.downloads_folder / "%(title)s.%(ext)s"
+            downloaded_location = self.downloads_folder / execute_download_command(file_path, item.url)
+            self.current_file_path = downloaded_location
             item.file_path = self.current_file_path
-            self.player = Player(self.current_file_path, self.playlist[0].duration)
+            self.player = Player(str(self.current_file_path), self.playlist[0].duration)
             self.update_embed = embed_now_playing(self)
             await self.update_message.edit(embed=self.update_embed)
         except Exception as e:
@@ -1128,11 +1132,6 @@ class ServerAudio:
 
         self.download_progress = -1
         self.downloading = False
-
-    def progress_hook(self, d):
-        if d["status"] != "finished":
-            return
-        self.current_file_path = Path(d["filename"])
 
     async def prepare_local_item(self, item: LocalItem) -> None:
         self.current_file_path = str(item.file_path.resolve())
@@ -1306,7 +1305,7 @@ def ascii_seek_position(percent: float, segments: int = 30) -> str:
     return line_with_seek
 
 
-def embed_downloading(embed, item: YouTubeItem, percent: float):
+def embed_downloading(embed, item: YouTubeItem):
     """
     Modifies an embed's description and thumbnail to display the progress through downloading a video.
     Arguments:
@@ -1314,10 +1313,8 @@ def embed_downloading(embed, item: YouTubeItem, percent: float):
         item - The PlaylistItem being downloaded.
         percent - Provided as a decimal from 0 to 1
     """
-    progress_bar = helpers.ascii_progress_bar(percent)
-    percent = percent * 100
     desc = f":inbox_tray: Downloading: [{item.title}]({item.url})"
-    embed.description = f"{desc}"#\n\n`{progress_bar} {percent:.1f}%`"
+    embed.description = f"{desc}"
     embed.set_thumbnail(url=item.thumbnail_url)
     return embed
 
@@ -1380,11 +1377,14 @@ def embed_added_youtube(item: YouTubeItem):
     # TODO: Time until playing?
 
 
-def embed_added_local(item: LocalItem):
+def embed_added_local(item: PlaylistItem):
     embed = helpers.default_embed()
     embed.title = "Added to queue"
     embed.description = f"{item.title}"
-    embed.add_field(name="Duration", value=helpers.seconds_to_SMPTE(item.duration))
+    if item.duration != 0:
+        embed.add_field(name="Duration", value=helpers.seconds_to_SMPTE(item.duration))
+    else:
+        embed.add_field(name="Duration", value="???")
     return embed
 
 
@@ -1414,6 +1414,16 @@ def chunk_list(lst, chunk_size):
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), chunk_size):
         yield lst[i:i + chunk_size]
+
+
+def execute_download_command(download_path: Path, download_url: str) -> str:
+    # TODO: Error handling; return code or STDERR
+    out = subprocess.check_output(["yt-dlp.exe", "-x", "-o", str(download_path), download_url]).decode(sys.stdout.encoding)
+    match = re.search(r"\[ExtractAudio\] Destination: (.+?)", out)
+    if match is None:
+        # TODO: Error handling for failed download.
+        raise ValueError()
+    return match.group(1)
 
 
 # FIXME: Update on voice state change

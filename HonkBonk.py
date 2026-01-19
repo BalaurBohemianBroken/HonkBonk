@@ -394,7 +394,8 @@ async def main():
     with open("settings.json", "r") as f:
         json_text = helpers.remove_python_comments(f.read())
         settings = loads(json_text)  # API tokens/bot settings
-    intents = discord.Intents.all()  # All intents makes quick testing easier.
+    intents = discord.Intents.default()  # All intents makes quick testing easier.
+    intents.message_content = True  # All intents makes quick testing easier.
     bot = MyBot(settings, intents=intents)
     bot.remove_command("help")  # Default help is ugly.
 

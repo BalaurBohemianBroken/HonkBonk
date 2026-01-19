@@ -125,21 +125,21 @@ class Core(commands.Cog):
 
         await target.send(message)
 
-    @commands.command(name="kick")
-    async def selfkick(self, ctx):
-        """Allows the user to kick themselves from the server for fun."""
-        if not await self.bot.has_perm(ctx): return
-
-        user = ctx.author
-        guild = ctx.guild
-
-        # DM the user and then kick them.
-        try:
-            await user.send(
-                "You kicked yourself from the server! Good job. \nHere's the invite link to get back: https://discord.gg/eW4CpfJ")
-            await guild.kick(user, reason="self kick c.kick :)")
-        except:
-            traceback.print_exc()
+    # @commands.command(name="kick")
+    # async def selfkick(self, ctx):
+    #     """Allows the user to kick themselves from the server for fun."""
+    #     if not await self.bot.has_perm(ctx): return
+    #
+    #     user = ctx.author
+    #     guild = ctx.guild
+    #
+    #     # DM the user and then kick them.
+    #     try:
+    #         await user.send(
+    #             "You kicked yourself from the server! Good job. \nHere's the invite link to get back: https://discord.gg/eW4CpfJ")
+    #         await guild.kick(user, reason="self kick c.kick :)")
+    #     except:
+    #         traceback.print_exc()
 
     @commands.command(name="uptime")
     async def uptime(self, ctx):
@@ -183,32 +183,32 @@ class Core(commands.Cog):
         img = user.avatar_url_as(format=None, static_format="png", size=4096)
         await ctx.send(f"{img}")
 
-    @commands.command(aliases=["sleep"])
-    async def vc_sleep(self, ctx):
-        if not await self.bot.has_perm(ctx): return
-
-        time = re.search(r" (\d+)", ctx.message.content)
-        if not time:
-            await ctx.send("Provide a time to remove you from the VC!")
-            return
-        time = int(time.group(1))
-        target_user = self.bot.admin_override(ctx.message)
-
-        # Check if there's already an entry for this user.
-        self.bot.cursor.execute("SELECT rowid, * FROM sleep_timer"
-                                f" WHERE user={target_user.id} AND guild={ctx.guild.id}")
-        result = self.bot.cursor.fetchone()
-        time = max(min(1440.0, time), 0.016)
-        end_time = helpers.time_from_now(minutes=time)
-        time_string = helpers.time_to_string(minutes=time)
-
-        # Update entry
-        if result:
-            self.bot.cursor.execute(f"UPDATE sleep_timer SET time={end_time} WHERE rowid={result['rowid']}")
-        else:
-            self.bot.cursor.execute(f"INSERT INTO sleep_timer VALUES(?,?,?,?)", (ctx.guild.id, target_user.id, end_time, ctx.channel.id))
-        self.bot.cursor.execute("commit")
-        await ctx.send(f"{target_user.name} will automagically be zapped from any VC in {time_string}.")
+    # @commands.command(aliases=["sleep"])
+    # async def vc_sleep(self, ctx):
+    #     if not await self.bot.has_perm(ctx): return
+    #
+    #     time = re.search(r" (\d+)", ctx.message.content)
+    #     if not time:
+    #         await ctx.send("Provide a time to remove you from the VC!")
+    #         return
+    #     time = int(time.group(1))
+    #     target_user = self.bot.admin_override(ctx.message)
+    #
+    #     # Check if there's already an entry for this user.
+    #     self.bot.cursor.execute("SELECT rowid, * FROM sleep_timer"
+    #                             f" WHERE user={target_user.id} AND guild={ctx.guild.id}")
+    #     result = self.bot.cursor.fetchone()
+    #     time = max(min(1440.0, time), 0.016)
+    #     end_time = helpers.time_from_now(minutes=time)
+    #     time_string = helpers.time_to_string(minutes=time)
+    #
+    #     # Update entry
+    #     if result:
+    #         self.bot.cursor.execute(f"UPDATE sleep_timer SET time={end_time} WHERE rowid={result['rowid']}")
+    #     else:
+    #         self.bot.cursor.execute(f"INSERT INTO sleep_timer VALUES(?,?,?,?)", (ctx.guild.id, target_user.id, end_time, ctx.channel.id))
+    #     self.bot.cursor.execute("commit")
+    #     await ctx.send(f"{target_user.name} will automagically be zapped from any VC in {time_string}.")
 
     async def vc_sleep_timer(self, time_now):
         self.bot.cursor.execute("SELECT rowid, * FROM sleep_timer ORDER BY time ASC")
@@ -333,23 +333,23 @@ class Core(commands.Cog):
         docstring = """```:)```"""
         await ctx.send(docstring)
 
-    @commands.command("kick.help")
-    async def self_kick_help(self, ctx):
-        # Gives no help so that people try to do it.
-        return
-
-    @commands.command(aliases=["sleep.help"])
-    async def sleep_help(self, ctx):
-        if not await self.bot.has_perm(ctx, dm=True): return
-        description = """
-            Automatically remove you (pidge) from a VC after the given time, in minutes.
-
-            **Examples:**
-            sleep in one hour
-            `c.sleep 60`
-            """
-        embed = helpers.help_command_embed(self.bot, description)
-        await ctx.send(embed=embed)
+    # @commands.command("kick.help")
+    # async def self_kick_help(self, ctx):
+    #     # Gives no help so that people try to do it.
+    #     return
+    #
+    # @commands.command(aliases=["sleep.help"])
+    # async def sleep_help(self, ctx):
+    #     if not await self.bot.has_perm(ctx, dm=True): return
+    #     description = """
+    #         Automatically remove you (pidge) from a VC after the given time, in minutes.
+    #
+    #         **Examples:**
+    #         sleep in one hour
+    #         `c.sleep 60`
+    #         """
+    #     embed = helpers.help_command_embed(self.bot, description)
+    #     await ctx.send(embed=embed)
 
     @commands.command("help")
     async def core_help(self, ctx):
@@ -382,7 +382,12 @@ class Core(commands.Cog):
 
 async def setup(bot):
     bot.core_help_text["General"] += [
-        "timestamp", "pat", "kick", "uptime", "pfp", "sleep"]
+        "timestamp",
+        "pat",
+        "uptime",
+        #"kick",
+        #"sleep",
+        "pfp"]
     #bot.core_help_text["Admins OwOnly"] += ["dm", "speak", "ignore", "ignore.none", "ignore.all"]
     await bot.add_cog(Core(bot))
 
