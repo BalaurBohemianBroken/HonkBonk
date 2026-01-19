@@ -78,7 +78,7 @@ class MyBot(commands.Bot):
         await self.load_extension("cogs.core")
         await self.load_extension("cogs.vc")
         # self.load_extension("cogs.name_history")
-        # self.load_extension("cogs.message_reactions")
+        await self.load_extension("cogs.message_reactions")
         # self.load_extension("cogs.word")
         # self.load_extension("cogs.games")
         await self.start(self.settings["BOT_TOKEN"], *args, **kwargs)

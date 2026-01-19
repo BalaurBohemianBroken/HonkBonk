@@ -16,10 +16,10 @@ class Reaction(commands.Cog, name="message_reactions"):
     @commands.Cog.listener()
     async def on_message(self, message):
         if not await self.bot.has_perm(message, dm=False): return
-        server = message.guild.id if message.guild else 0
-        msg = message.content
+        await self.yap_react(message)
 
-        im_response = re.match(r"i[']?(?:m| am) ?(.{1,32})(?:$|[ ,.!])", msg, flags=re.IGNORECASE)
+    async def rename_on_im(self, server, message):
+        im_response = re.match(r"i[']?(?:m| am) ?(.{1,32})(?:$|[ ,.!])", message.content, flags=re.IGNORECASE)
         if server and im_response:
             name = im_response.group(1).strip()
             try:
@@ -27,7 +27,12 @@ class Reaction(commands.Cog, name="message_reactions"):
             except discord.errors.Forbidden:
                 pass
 
+    async def yap_react(self, message):
+        if "yap" not in message.content.lower():
+            return
+        await message.add_reaction("<yap:1462729662496247922>")
 
-def setup(bot):
+
+async def setup(bot):
     #bot.core_help_text["modules"] += ["react"]
-    bot.add_cog(Reaction(bot))
+    await bot.add_cog(Reaction(bot))
