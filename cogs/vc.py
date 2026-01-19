@@ -36,12 +36,31 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
         self.yt_api_key = self.bot.settings["YT_API_KEY"][0]
         self.help_dict = {
             "Playback": [f"{self.prefix}." + x for x in
-                         ["play", "playtop", "playLocal", "search", "seek",
-                          "clear", "repeat", "skip", "remove", "pause"]],
+                         [
+                             "play",
+                             "playTop",
+                             "search",
+                             "seek",
+                             "clear",
+                             "repeat",
+                             "skip",
+                             "remove",
+                             "pause"
+                         ]],
             "Basic": [f"{self.prefix}." + x for x in
-                         ["join", "leave"]],
+                         [
+                             "join",
+                             "leave"
+                         ]],
             "Info": [f"{self.prefix}." + x for x in
-                         ["description", "queue", "nowplaying"]],
+                     [
+                         "description",
+                         "queue",
+                         "nowplaying"
+                     ]],
+            "only i can use this": [f"{self.prefix}." + x for x in [
+                "playLocal"
+            ]]
         }
 
     @commands.command(aliases=[f"{prefix}.join", f"{prefix}.getin"])
@@ -83,11 +102,12 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
     async def play_song_command(self, ctx):
         await self.play_song(ctx)
 
-    @commands.command(aliases=[f"{prefix}.playtop", f"{prefix}.pt"])
+    @commands.command(aliases=[f"{prefix}.playTop", f"{prefix}.playtop", f"{prefix}.pt"])
     async def play_song_top(self, ctx):
         await self.play_song(ctx, 0)
 
     async def play_song(self, ctx, pos=-1):
+        # TODO: Bandcamp implementation.
         if not await self.bot.has_perm(ctx, dm=False): return
         content = helpers.remove_invoke(ctx.message.content)
         if not content:
@@ -428,7 +448,8 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
     async def vc_module_help(self, ctx):
         """The core help command."""
         if not await self.bot.has_perm(ctx, dm=True): return
-        desc = "Play music! Play videos! Upset the ears of your friends!"
+        desc = """Play music! Play videos! Upset the ears of your friends!
+        Works on YouTube and Bandcamp. Does it work on other websites? ask!"""
         await ctx.send(embed=self.bot.create_help(self.help_dict, desc))
 
     @commands.command(aliases=[f"{prefix}.join.help"])
@@ -462,19 +483,29 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
         if not await self.bot.has_perm(ctx, dm=True): return
         description = """
         Resume a video, or add a new video to the end of the playlist.
-        Youtube videos.
 
         **Examples:**
         Resumes playing the current video.
         `c.vc.play`
+        Adds a bandcamp tracklist!
+        `c.vc.p baltyk.bandcamp.com/album/self-help-pt-1`
         Adds this video to the end of the current playlist.
-        `c.vc.p https://youtu.be/J7sU9uB8XtU`
+        `c.vc.p https://youtu.be/DSqqPjjF3Q0`
         Add a whole heckin playlist
         `c.vc.p <https://www.youtube.com/playlist?list=PLeSM-rQ-jVpulMI3sas4GE6Xh2XH4pwqD>`
         Search YouTube.
         `c.vc.p duck asks for bread`
         Search YouTube, and take the 5th result. Maximum for res is 50.
         `c.vc.p pigeon cooing sounds res=5`
+        """
+        embed = helpers.help_command_embed(self.bot, description)
+        await ctx.send(embed=embed)
+
+    @commands.command(aliases=[f"{prefix}.playtop.help", f"{prefix}.playTop.help", f"{prefix}.pt.help"])
+    async def play_song_help(self, ctx):
+        if not await self.bot.has_perm(ctx, dm=True): return
+        description = """
+        Same as c.vc.play, but adds it to the START of the playlist!
         """
         embed = helpers.help_command_embed(self.bot, description)
         await ctx.send(embed=embed)
