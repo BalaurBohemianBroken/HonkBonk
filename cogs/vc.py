@@ -1471,5 +1471,5 @@ class NoLoadedTrack(Exception):
     pass
 
 async def setup(bot):
-    bot.core_help_text["modules"] += ["vc"]
+    #bot.core_help_text["modules"] += ["vc"]
     await bot.add_cog(VoiceChannels(bot))

@@ -180,7 +180,7 @@ class Core(commands.Cog):
                     await ctx.send("Cannot find user.")
                     return
 
-        img = user.avatar_url_as(format=None, static_format="png", size=4096)
+        img = user.display_avatar.url
         await ctx.send(f"{img}")
 
     # @commands.command(aliases=["sleep"])
