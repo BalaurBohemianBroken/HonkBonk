@@ -131,10 +131,10 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
 
         await ctx.send("Couldn't find a URL!")
 
-    async def play_youtube_video(self, ctx, url, current_vc, pos):
+    async def play_youtube_video(self, ctx, url: str, current_vc, pos):
         youtube_video_match = re.match(
             r"""(?:https:\/\/)?(?:[0-9A-Za-z-]+\.)?(?:youtu\.be\/|youtube(?:-nocookie)?\.com\S*?[^\w\s-])([\w-]{11})(?=[^\w-]|$)(?![?=&+%\w.-]*(?:['"][^<>]*>|<\/a>))[?=&+%\w.-]*""",
-            url.group(1))
+            url)
 
         if youtube_video_match and youtube_video_match.group(1):
             item = await YouTubeItem.create_from_video_ids(ctx.author.display_name, self.yt_api_key,
@@ -149,7 +149,7 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
             await ctx.send(embed=embed)
             return
 
-        youtube_playlist_match = re.search(r'playlist\?list=([^>]+)', url.group(1))
+        youtube_playlist_match = re.search(r'playlist\?list=([^>]+)', url)
         if youtube_playlist_match and youtube_playlist_match.group(1):
             playlist_items = await YouTubeItem.create_from_playlist_id(ctx.author.display_name, self.yt_api_key,
                                                                        youtube_playlist_match.group(1), self.session)
@@ -903,7 +903,6 @@ class YouTubeItem(PlaylistItem):
                 try:
                     dur_text = vid["contentDetails"]["duration"]  # Yt provides a weird format.
                 except Exception as e:
-                    print(vid)
                     raise e
                 match = re.search(r"T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur_text)
                 if not match:
@@ -1008,6 +1007,7 @@ class ServerAudio:
 
         if len(self.playlist) == 1:  # Only the song that was just added exists.
             if self.auto_play:
+                # TODO: This doesn't send a message. Figure out how to handle message sending with this system. Probably return type.
                 await self.play()
             return 1
         return 0
@@ -1038,7 +1038,7 @@ class ServerAudio:
         next_item = self.playlist[0]
         if isinstance(next_item, YouTubeItem):
             await self.download(next_item)
-        elif isinstance(next_item, LocalItem):
+        elif isinstance(next_item, PlaylistItem):
             await self.prepare_local_item(next_item)
 
         if self.player is None:  # Download failed/stopped
@@ -1103,8 +1103,6 @@ class ServerAudio:
         indexes = sorted(indexes, reverse=True)
 
         for i in indexes:
-            print(i)
-            print(len(self.playlist))
             if len(self.playlist) <= i:
                 failed_indexes.append(i)
                 continue
@@ -1143,7 +1141,7 @@ class ServerAudio:
 
     async def download_worker(self, item: YouTubeItem) -> None:
         self.update_embed = helpers.default_embed()  # Downloading embed.
-        self.update_embed = embed_downloading(self.update_embed, item, 0)
+        self.update_embed = embed_downloading(self.update_embed, item)
         self.update_message = await self.message_channel.send(embed=self.update_embed)
 
         try:
@@ -1164,7 +1162,7 @@ class ServerAudio:
         self.download_progress = -1
         self.downloading = False
 
-    async def prepare_local_item(self, item: LocalItem) -> None:
+    async def prepare_local_item(self, item: PlaylistItem) -> None:
         self.current_file_path = str(item.file_path.resolve())
         self.player = Player(self.current_file_path, self.playlist[0].duration)
         await self.message_channel.send(embed=embed_now_playing(self))
@@ -1321,7 +1319,7 @@ async def youtube_video_search(youtube_api_key: str, video_ids: str, session: ai
             r = await session.request(method="GET", url=url)
             r = await r.json()
             ret_dict["items"] += r["items"]
-    return r
+    return ret_dict
 
 
 def ascii_seek_position(percent: float, segments: int = 30) -> str:
@@ -1450,11 +1448,11 @@ def chunk_list(lst, chunk_size):
 def execute_download_command(download_path: Path, download_url: str) -> str:
     # TODO: Error handling; return code or STDERR
     out = subprocess.check_output(["yt-dlp.exe", "-x", "-o", str(download_path), download_url]).decode(sys.stdout.encoding)
-    match = re.search(r"\[ExtractAudio\] Destination: (.+?)", out)
+    match = re.search(r"\[ExtractAudio\] Destination: (.+)", out)
     if match is None:
         # TODO: Error handling for failed download.
         raise ValueError()
-    return match.group(1)
+    return Path(match.group(1)).name
 
 
 # FIXME: Update on voice state change
