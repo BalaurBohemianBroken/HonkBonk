@@ -3,6 +3,7 @@ import random
 import time
 import re
 from discord.ext import commands
+import asyncio
 
 
 class Reaction(commands.Cog, name="message_reactions"):
@@ -45,9 +46,9 @@ class Reaction(commands.Cog, name="message_reactions"):
         await self.generic_react(message, r"(?:.*?\W|^)(?:car)(?:\W|$)", animal_react_delay, animal_react_chance, "<carbold:1462921633177141318>", 1462921633177141318)
 
         # Username reacts
-        username_react_delay = 60 * 5
+        username_react_delay = 60 * 2
         username_react_chance = 0.6
-        await self.generic_react(message, r"(?:.*?\W|^)(?:mooni)(?:\W|$)", username_react_delay, username_react_chance, "☕", hash("☕"))
+        await self.generic_react(message, r"(?:.*?\W|^)(?:mooni|sleepy|eepy)(?:\W|$)", username_react_delay, username_react_chance, "☕", hash("☕"))
         await self.generic_react(message, r"(?:.*?\W|^)(?:dani|tiny|bird)(?:\W|$)", username_react_delay, username_react_chance, random.choice(["<dani:1462920859596619880>", "<dani_giggle:1462931410921984103>", "<dani_love:1462931657953644595>", "<dani_threaten:1462931810311733380>"]), 1462920859596619880)
         await self.generic_react(message, r"(?:.*?\W|^)(?:kobold|lizard|lizzer|will|balaur)(?:\W|$)", username_react_delay, 1, random.choice(["<carbold:1462921633177141318>", "<tinybold:1462923072007835753>", "<lizzer:1462923230011588639>", "<polite:1462923370717905026>"]), 1462923370717905026)
         await self.generic_react(message, r"(?:.*?\W|^)(?:kyro|derg)(?:\W|$)", username_react_delay, username_react_chance, "🍜", hash("🍜"))
@@ -55,7 +56,10 @@ class Reaction(commands.Cog, name="message_reactions"):
         await self.generic_react(message, r"(?:.*?\W|^)(?:zillu|bunny|rabbit)(?:\W|$)", username_react_delay, username_react_chance, random.choice(["<zillu_clap:1462925490837917777>", "<zillu_close:1462925547339387087>", "<zillu_bean:1462925555966935245>", "🐇"]), 1462925547339387087)
         await self.generic_react(message, r"(?:.*?\W|^)(?:adam|panda|wolf)(?:\W|$)", username_react_delay, username_react_chance, random.choice(["🐺", "🦝"]), hash("🐺"))
 
-    async def generic_react(self, message: discord.Message, regex: str, timer: int, chance: float, reaction: str, reaction_id: int) -> bool:
+    async def generic_react(self, message: discord.Message,
+                            regex: str, timer: int, chance: float,
+                            reaction: str, reaction_id: int,
+                            remove_reaction_chance: float = 0.3, remove_reaction_delay: float = 1) -> bool:
         self.bot.cursor.execute(f"SELECT rowid, * FROM react_timer WHERE reaction_id={reaction_id} AND guild={message.guild.id}")
         db_entry = self.bot.cursor.fetchone()
         current_time = int(time.time())
@@ -72,6 +76,11 @@ class Reaction(commands.Cog, name="message_reactions"):
         else:
             self.bot.cursor.execute(f"INSERT INTO react_timer VALUES(?,?,?)", (message.guild.id, reaction_id, current_time))
         self.bot.cursor.execute("commit")
+
+        if random.random() > remove_reaction_chance:
+            return True
+        await asyncio.sleep(remove_reaction_delay)
+        await message.remove_reaction(reaction, self.bot.user)
         return True
 
     async def rename_on_im(self, server, message):
