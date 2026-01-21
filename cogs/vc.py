@@ -18,7 +18,11 @@ import subprocess
 import sys
 
 # TODO: Allow it to pull from my foobar playlists.
-
+# TODO: Save queue between sessions/save queue to user
+# TODO: Update "now playing" as the song plays
+# TODO: Quiet mode.
+# TODO: Move channel command.
+# TODO: Improve local playing file reading.
 
 class VoiceChannels(commands.Cog, name="voice_channels"):
     prefix = "vc"
@@ -1471,5 +1475,5 @@ class NoLoadedTrack(Exception):
     pass
 
 async def setup(bot):
-    #bot.core_help_text["modules"] += ["vc"]
+    bot.core_help_text["modules"] += ["vc"]
     await bot.add_cog(VoiceChannels(bot))
