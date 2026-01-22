@@ -78,12 +78,12 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
         self.init_db(bot.cursor)
 
     def init_db(self, cursor):
-        cursor.execute("begin")
-        cursor.execute("DROP TABLE vc_memory")
-        cursor.execute("DROP TABLE vc_playlist")
-        cursor.execute("DROP TABLE vc_playlist_item")
-        cursor.execute("DROP TABLE vc_youtube_item")
-        cursor.execute("commit")
+        # cursor.execute("begin")
+        # cursor.execute("DROP TABLE vc_memory")
+        # cursor.execute("DROP TABLE vc_playlist")
+        # cursor.execute("DROP TABLE vc_playlist_item")
+        # cursor.execute("DROP TABLE vc_youtube_item")
+        # cursor.execute("commit")
         cursor.execute("begin")
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS vc_memory ("
@@ -1075,6 +1075,7 @@ class ServerAudio:
         else:
             self.playlist.append(item)
 
+        self.save_playlist()
         if len(self.playlist) == 1:  # Only the song that was just added exists.
             if self.auto_play:
                 # TODO: This doesn't send a message. Figure out how to handle message sending with this system. Probably return type.
@@ -1182,6 +1183,7 @@ class ServerAudio:
                     await self.play()
                 continue
             self.playlist.pop(i)
+        self.save_playlist()
 
         return failed_indexes
 
@@ -1199,6 +1201,7 @@ class ServerAudio:
             raise PlaylistEmpty
         current_song = self.playlist.pop(0)
         self.playlist = [current_song]
+        self.save_playlist()
 
     async def download(self, item: YouTubeItem) -> None:
         if self.downloading:
@@ -1252,6 +1255,7 @@ class ServerAudio:
         # Remove downloaded files
         if isinstance(finished_song, YouTubeItem):
             os.remove(finished_song.file_path)
+        self.save_playlist()
 
     def song_ended_event(self, e):
         self.song_ended = True
@@ -1267,7 +1271,6 @@ class ServerAudio:
     async def on_leave_vc(self):
         """Cleans up anything ongoing before the bot leaves."""
         await self.song_end()
-        db_save_memory(self.cursor, self)
 
     def create_pages(self):
         """Creates a list of ServerAudio.Page, to pass to ReactiveMessageManager.create_reactive_message"""
@@ -1308,6 +1311,14 @@ class ServerAudio:
             return [p]
         else:
             return None
+
+    def save_playlist(self):
+        db_remove_memory(self.cursor, self.vc.guild.id, self.vc.guild.id)
+        db_save_memory(self.cursor, self)
+
+    def load_playlist(self):
+        # TODO: Implement.
+        pass
 
     @staticmethod
     def display_playlist(page_data):
@@ -1539,10 +1550,12 @@ def db_remove_memory(cursor, guild_id: int, playlist_id: int):
     cursor.execute("commit")
 
 
-def db_save_memory(cursor, server_audio: 'ServerAudio'):
+def db_save_memory(cursor, server_audio: 'ServerAudio') -> int:
     cursor.execute("begin")
-    cursor.execute("SELECT COALESCE(MAX(playlist_id), 0) FROM vc_memory;")
-    playlist_max = cursor.fetchone()[0]
+    # TODO: Right now, I'm just using the guild's id as the playlist id.
+    #  If I add wider playlist support in the future, this should be more robust.
+    # cursor.execute("SELECT COALESCE(MAX(playlist_id), 0) FROM vc_memory;")
+    #playlist_max = cursor.fetchone()[0]
     cursor.execute("SELECT COALESCE(MAX(song_id), 0) FROM vc_playlist_item;")
     song_max = cursor.fetchone()[0]
 
@@ -1551,7 +1564,7 @@ def db_save_memory(cursor, server_audio: 'ServerAudio'):
     vc_playlist_item = []
     vc_youtube_item = []
     curr_song_id = song_max + 1
-    curr_playlist_id = playlist_max + 1
+    curr_playlist_id = server_audio.vc.guild.id
     for i in range(len(server_audio.playlist)):
         item = server_audio.playlist[i]
         playlist_serialized = [curr_playlist_id, curr_song_id, i]
@@ -1568,6 +1581,8 @@ def db_save_memory(cursor, server_audio: 'ServerAudio'):
     cursor.executemany("INSERT INTO vc_playlist_item VALUES(?,?,?,?,?,?)", vc_playlist_item)
     cursor.executemany("INSERT INTO vc_youtube_item VALUES(?,?,?,?,?,?)", vc_youtube_item)
     cursor.execute("commit")
+
+    return curr_playlist_id
 
 
 # FIXME: Update on voice state change
