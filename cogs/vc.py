@@ -16,6 +16,7 @@ from typing import List
 from pathlib import Path
 import subprocess
 import sys
+import enum
 
 # TODO: Allow it to pull from my foobar playlists.
 # TODO: Save queue between sessions/save queue to user
@@ -23,6 +24,13 @@ import sys
 # TODO: Quiet mode.
 # TODO: Move channel command.
 # TODO: Improve local playing file reading.
+
+
+class PlaylistItemType(enum.Enum):
+    PlaylistItem = 0
+    LocalItem = 1
+    YouTubeItem = 2
+
 
 class VoiceChannels(commands.Cog, name="voice_channels"):
     prefix = "vc"
@@ -66,6 +74,52 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
                 "playLocal"
             ]]
         }
+        self.init_db(bot.cursor)
+
+    def init_db(self, cursor):
+        # cursor.execute("begin")
+        # cursor.execute("DROP TABLE vc_memory")
+        # cursor.execute("DROP TABLE vc_playlist")
+        # cursor.execute("DROP TABLE vc_playlist_item")
+        # cursor.execute("DROP TABLE vc_youtube_item")
+        # cursor.execute("commit")
+        cursor.execute("begin")
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS vc_memory ("
+            "guild INTEGER NOT NULL UNIQUE,"
+            "playlist_id INTEGER NOT NULL UNIQUE,"
+            "last_updated INTEGER NOT NULL,"
+            "auto_play INTEGER NOT NULL,"
+            "loop INTEGER NOT NULL"
+            ") STRICT;")
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS vc_playlist ("
+            "playlist_id INTEGER NOT NULL,"
+            "song_id INTEGER NOT NULL,"
+            "position INTEGER NOT NULL"
+            ") STRICT;")
+
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS vc_playlist_item ("
+            "song_id INTEGER NOT NULL UNIQUE,"
+            "title TEXT NOT NULL,"
+            "duration INTEGER NOT NULL,"
+            "requested_by TEXT NOT NULL,"
+            "file_path TEXT NOT NULL,"
+            "song_type INTEGER NOT NULL"  # Specifies what more data should be fetched
+            ") STRICT;"
+        )
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS vc_youtube_item ("
+            "song_id INTEGER NOT NULL UNIQUE,"
+            "release_date TEXT NOT NULL,"
+            "author TEXT NOT NULL,"
+            "url TEXT NOT NULL,"
+            "description TEXT NOT NULL,"
+            "thumbnail TEXT NOT NULL"
+            ") STRICT;"
+        )
+        cursor.execute("commit")
 
     @commands.command(aliases=[f"{prefix}.join", f"{prefix}.getin"])
     async def join_vc_command(self, ctx):
@@ -784,6 +838,46 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
             await message.channel.send(embed=embed_added_youtube(result))
         return True
 
+    def db_remove_memory(self, cursor, guild_id: int, playlist_id: int):
+        # TODO: Test this works! DB viewing!
+        cursor.execute("begin")
+        cursor.execute("SELECT song_id FROM vc_playlist WHERE playlist_id=?", (playlist_id,))
+        song_ids = cursor.fetchall()
+
+        cursor.executemany("DELETE FROM vc_playlist_item WHERE song_id=?", song_ids)
+        cursor.executemany("DELETE FROM vc_youtube_item WHERE song_id=?", song_ids)
+        cursor.execute("DELETE FROM vc_playlist WHERE playlist_id=?", (playlist_id,))
+        cursor.execute("DELETE FROM vc_memory WHERE guild=? AND playlist_id=?", (guild_id, playlist_id))
+        cursor.execute("commit")
+
+    def db_save_memory(self, cursor, server_audio: 'ServerAudio'):
+        cursor.execute("begin")
+        cursor.execute("SELECT MAX(playlist_id) FROM vc_memory;")
+        playlist_max = cursor.fetchone()
+        cursor.execute("SELECT MAX(song_id) FROM vc_playlist_item;")
+        song_max = cursor.fetchone()
+
+        # Serialize the object.
+        vc_playlist = []
+        vc_playlist_item = []
+        vc_youtube_item = []
+        curr_song_id = song_max + 1
+        for p in range(len(server_audio.playlist)):
+            playlist_serialized = [playlist_max, curr_song_id, p]
+            vc_playlist.append(playlist_serialized)
+            for item in server_audio.playlist[p]:
+                vc_playlist_item.append(item.serialize(curr_song_id))
+                if item.song_type == PlaylistItemType.YouTubeItem:
+                    vc_youtube_item.append(item.serialize_youtube(curr_song_id))
+            curr_song_id += 1
+
+        cursor.execute("INSERT INTO vc_memory VALUES(?,?,?,?,?)",
+                       (server_audio.vc.guild.id, playlist_max, time.time(), int(server_audio.auto_play), server_audio.loop.state_num))
+        cursor.executemany("INSERT INTO vc_playlist VALUES(?,?,?)", vc_playlist)
+        cursor.executemany("INSERT INTO vc_playlist_item VALUES(?,?,?,?,?,?)", vc_playlist_item)
+        cursor.executemany("INSERT INTO vc_youtube_item VALUES(?,?,?,?,?,?)", vc_youtube_item)
+        cursor.execute("commit")
+
     @dataclass
     class YouTubeSearchPage:
         videos: List['PlaylistItem']
@@ -835,10 +929,16 @@ class PlaylistItem:
     duration: int = field(default=0, repr=False)
     requested_by: str = field(default="")
     file_path: Path = field(default=None)
+    song_type: int = field(default=PlaylistItemType.PlaylistItem)
+
+    def serialize(self, song_id):
+        return [song_id, self.title, self.duration, self.requested_by, self.file_path, self.song_type]
 
 
 @dataclass
 class LocalItem(PlaylistItem):
+    song_type: int = field(default=PlaylistItemType.LocalItem)
+
     @staticmethod
     def create_from_local_file(requested_by: str, file_path: Path) -> 'LocalItem':
         if not file_path.exists():
@@ -877,6 +977,7 @@ class YouTubeItem(PlaylistItem):
     url: str = field(default="", repr=False)
     description: str = field(default="", repr=False)
     thumbnail_url: str = field(default="", repr=False)
+    song_type: int = field(default=PlaylistItemType.YouTubeItem)
 
     @staticmethod
     async def create_from_video_ids(requested_by: str, youtube_api_key: str, video_ids: [str], session: aiohttp.ClientSession,
@@ -966,6 +1067,9 @@ class YouTubeItem(PlaylistItem):
 
         return item_list
 
+    def serialize_youtube(self, song_id):
+        return [song_id, self.release_date, self.author, self.url, self.description, self.thumbnail_url]
+
 
 # Requires FFMPEG
 class ServerAudio:
@@ -987,8 +1091,8 @@ class ServerAudio:
         self.update_embed = None
         self.update_message = None
         self.auto_play = True
-
         self.loop = helpers.StateObject("off", "one", "all")
+
         asyncio.run_coroutine_threadsafe(self.check_if_song_ended_loop(), self.async_loop)
 
     # Handle moving to the next song.
