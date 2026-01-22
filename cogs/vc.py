@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 import time
 from discord.ext import commands
 import discord
@@ -16,7 +17,7 @@ from typing import List
 from pathlib import Path
 import subprocess
 import sys
-import enum
+from enum import IntEnum
 
 # TODO: Allow it to pull from my foobar playlists.
 # TODO: Save queue between sessions/save queue to user
@@ -26,7 +27,7 @@ import enum
 # TODO: Improve local playing file reading.
 
 
-class PlaylistItemType(enum.Enum):
+class PlaylistItemType(IntEnum):
     PlaylistItem = 0
     LocalItem = 1
     YouTubeItem = 2
@@ -77,16 +78,16 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
         self.init_db(bot.cursor)
 
     def init_db(self, cursor):
-        # cursor.execute("begin")
-        # cursor.execute("DROP TABLE vc_memory")
-        # cursor.execute("DROP TABLE vc_playlist")
-        # cursor.execute("DROP TABLE vc_playlist_item")
-        # cursor.execute("DROP TABLE vc_youtube_item")
-        # cursor.execute("commit")
+        cursor.execute("begin")
+        cursor.execute("DROP TABLE vc_memory")
+        cursor.execute("DROP TABLE vc_playlist")
+        cursor.execute("DROP TABLE vc_playlist_item")
+        cursor.execute("DROP TABLE vc_youtube_item")
+        cursor.execute("commit")
         cursor.execute("begin")
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS vc_memory ("
-            "guild INTEGER NOT NULL UNIQUE,"
+            "guild INTEGER NOT NULL,"
             "playlist_id INTEGER NOT NULL UNIQUE,"
             "last_updated INTEGER NOT NULL,"
             "auto_play INTEGER NOT NULL,"
@@ -787,7 +788,7 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
             return None
 
         await ctx.guild.change_voice_state(channel=vc)
-        self.connections[ctx.guild.id] = ServerAudio(voice_client, message_channel, self.bot.loop, self.yt_api_key)
+        self.connections[ctx.guild.id] = ServerAudio(voice_client, message_channel, self.bot.loop, self.yt_api_key, self.bot.cursor)
         return self.connections[ctx.guild.id]
 
     async def leave_voice_channel(self, ctx) -> bool:
@@ -837,46 +838,6 @@ class VoiceChannels(commands.Cog, name="voice_channels"):
         if await vc.add_playlist_item(result) == 0:
             await message.channel.send(embed=embed_added_youtube(result))
         return True
-
-    def db_remove_memory(self, cursor, guild_id: int, playlist_id: int):
-        # TODO: Test this works! DB viewing!
-        cursor.execute("begin")
-        cursor.execute("SELECT song_id FROM vc_playlist WHERE playlist_id=?", (playlist_id,))
-        song_ids = cursor.fetchall()
-
-        cursor.executemany("DELETE FROM vc_playlist_item WHERE song_id=?", song_ids)
-        cursor.executemany("DELETE FROM vc_youtube_item WHERE song_id=?", song_ids)
-        cursor.execute("DELETE FROM vc_playlist WHERE playlist_id=?", (playlist_id,))
-        cursor.execute("DELETE FROM vc_memory WHERE guild=? AND playlist_id=?", (guild_id, playlist_id))
-        cursor.execute("commit")
-
-    def db_save_memory(self, cursor, server_audio: 'ServerAudio'):
-        cursor.execute("begin")
-        cursor.execute("SELECT MAX(playlist_id) FROM vc_memory;")
-        playlist_max = cursor.fetchone()
-        cursor.execute("SELECT MAX(song_id) FROM vc_playlist_item;")
-        song_max = cursor.fetchone()
-
-        # Serialize the object.
-        vc_playlist = []
-        vc_playlist_item = []
-        vc_youtube_item = []
-        curr_song_id = song_max + 1
-        for p in range(len(server_audio.playlist)):
-            playlist_serialized = [playlist_max, curr_song_id, p]
-            vc_playlist.append(playlist_serialized)
-            for item in server_audio.playlist[p]:
-                vc_playlist_item.append(item.serialize(curr_song_id))
-                if item.song_type == PlaylistItemType.YouTubeItem:
-                    vc_youtube_item.append(item.serialize_youtube(curr_song_id))
-            curr_song_id += 1
-
-        cursor.execute("INSERT INTO vc_memory VALUES(?,?,?,?,?)",
-                       (server_audio.vc.guild.id, playlist_max, time.time(), int(server_audio.auto_play), server_audio.loop.state_num))
-        cursor.executemany("INSERT INTO vc_playlist VALUES(?,?,?)", vc_playlist)
-        cursor.executemany("INSERT INTO vc_playlist_item VALUES(?,?,?,?,?,?)", vc_playlist_item)
-        cursor.executemany("INSERT INTO vc_youtube_item VALUES(?,?,?,?,?,?)", vc_youtube_item)
-        cursor.execute("commit")
 
     @dataclass
     class YouTubeSearchPage:
@@ -932,7 +893,7 @@ class PlaylistItem:
     song_type: int = field(default=PlaylistItemType.PlaylistItem)
 
     def serialize(self, song_id):
-        return [song_id, self.title, self.duration, self.requested_by, self.file_path, self.song_type]
+        return [song_id, self.title, self.duration, self.requested_by, str(self.file_path), int(self.song_type)]
 
 
 @dataclass
@@ -1073,7 +1034,8 @@ class YouTubeItem(PlaylistItem):
 
 # Requires FFMPEG
 class ServerAudio:
-    def __init__(self, voice_client: discord.VoiceClient, message_channel, async_loop, yt_api_key):
+    def __init__(self, voice_client: discord.VoiceClient, message_channel, async_loop, yt_api_key, db_cursor: sqlite3.Cursor):
+        self.cursor = db_cursor
         self.vc = voice_client
         self.message_channel = message_channel  # The place notifications and messages are sent.
         # FIXME: The first song in the playlist tends to be skipped.
@@ -1305,6 +1267,7 @@ class ServerAudio:
     async def on_leave_vc(self):
         """Cleans up anything ongoing before the bot leaves."""
         await self.song_end()
+        db_save_memory(self.cursor, self)
 
     def create_pages(self):
         """Creates a list of ServerAudio.Page, to pass to ReactiveMessageManager.create_reactive_message"""
@@ -1561,6 +1524,50 @@ def execute_download_command(download_path: Path, download_url: str) -> str:
         # TODO: Error handling for failed download.
         raise ValueError()
     return Path(match.group(1)).name
+
+
+def db_remove_memory(cursor, guild_id: int, playlist_id: int):
+    # TODO: Test this works! DB viewing!
+    cursor.execute("begin")
+    cursor.execute("SELECT song_id FROM vc_playlist WHERE playlist_id=?", (playlist_id,))
+    song_ids = cursor.fetchall()
+
+    cursor.executemany("DELETE FROM vc_playlist_item WHERE song_id=?", song_ids)
+    cursor.executemany("DELETE FROM vc_youtube_item WHERE song_id=?", song_ids)
+    cursor.execute("DELETE FROM vc_playlist WHERE playlist_id=?", (playlist_id,))
+    cursor.execute("DELETE FROM vc_memory WHERE guild=? AND playlist_id=?", (guild_id, playlist_id))
+    cursor.execute("commit")
+
+
+def db_save_memory(cursor, server_audio: 'ServerAudio'):
+    cursor.execute("begin")
+    cursor.execute("SELECT COALESCE(MAX(playlist_id), 0) FROM vc_memory;")
+    playlist_max = cursor.fetchone()[0]
+    cursor.execute("SELECT COALESCE(MAX(song_id), 0) FROM vc_playlist_item;")
+    song_max = cursor.fetchone()[0]
+
+    # Serialize the object.
+    vc_playlist = []
+    vc_playlist_item = []
+    vc_youtube_item = []
+    curr_song_id = song_max + 1
+    curr_playlist_id = playlist_max + 1
+    for i in range(len(server_audio.playlist)):
+        item = server_audio.playlist[i]
+        playlist_serialized = [curr_playlist_id, curr_song_id, i]
+        vc_playlist.append(playlist_serialized)
+
+        vc_playlist_item.append(item.serialize(curr_song_id))
+        if item.song_type == PlaylistItemType.YouTubeItem:
+            vc_youtube_item.append(item.serialize_youtube(curr_song_id))
+        curr_song_id += 1
+
+    cursor.execute("INSERT INTO vc_memory VALUES(?,?,?,?,?)",
+                   (server_audio.vc.guild.id, curr_playlist_id, int(time.time()), int(server_audio.auto_play), server_audio.loop.state_num))
+    cursor.executemany("INSERT INTO vc_playlist VALUES(?,?,?)", vc_playlist)
+    cursor.executemany("INSERT INTO vc_playlist_item VALUES(?,?,?,?,?,?)", vc_playlist_item)
+    cursor.executemany("INSERT INTO vc_youtube_item VALUES(?,?,?,?,?,?)", vc_youtube_item)
+    cursor.execute("commit")
 
 
 # FIXME: Update on voice state change
