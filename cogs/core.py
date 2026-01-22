@@ -5,6 +5,7 @@ import logging
 import traceback
 import helpers
 from HonkBonk import MyBot
+from json import loads
 
 
 class Core(commands.Cog):
@@ -31,6 +32,18 @@ class Core(commands.Cog):
         #     "dunno": 100
         # })
 
+    def init_db(self, cursor):
+        cursor.execute("begin")
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS sleep_timer ("  # An entry is created for each change that is detected.
+            "guild INTEGER,"  # ID of the server
+            "user INTEGER,"  # ID of the user
+            "time INTEGER,"  # The time the user should be removed from the VC.
+            "reply_channel INTEGER"  # ID of the channel to announce VC removal in.
+            ")")
+        cursor.execute("commit")
+
+    #region Events
     async def on_command_error(self, ctx, error):
         """Triggered when a prefix is found, but no command is."""
         if isinstance(error, commands.CommandNotFound):  # Unrecognized command
@@ -44,18 +57,9 @@ class Core(commands.Cog):
 
     async def on_ready(self):
         print(f"{self.bot.user} has connected to Discord :)")
+    #endregion
 
-    def init_db(self, cursor):
-        cursor.execute("begin")
-        cursor.execute(
-            "CREATE TABLE IF NOT EXISTS sleep_timer ("  # An entry is created for each change that is detected.
-            "guild INTEGER,"  # ID of the server
-            "user INTEGER,"  # ID of the user
-            "time INTEGER,"  # The time the user should be removed from the VC.
-            "reply_channel INTEGER"  # ID of the channel to announce VC removal in.
-            ")")
-        cursor.execute("commit")
-
+    #region Commands
     # TODO: I'd like to find some way to join up commands and their help functions.
     #  This might be achieved by creating an object rather than simply running functions.
     @commands.command(name=f"timestamp")
@@ -124,6 +128,31 @@ class Core(commands.Cog):
         target = await self.bot.fetch_user(uid)
 
         await target.send(message)
+
+    @commands.command(aliases=["updates"])
+    async def dm_user(self, ctx):
+        """
+        DM a user. An excess of spaces should be placed between the user's ID and the content to send to them.
+        Arguments:
+            user: The user to send the ID to.
+            content: What to send to them.
+        Example:
+            c.dm user=630930243464462346      you're really cool
+        """
+        # TODO: Paging updates.
+        if not await self.bot.has_perm(ctx, dm=True): return
+        update_history = {}
+        with open("update_history.json", "r") as f:
+            json_text = helpers.remove_python_comments(f.read())
+            update_history = loads(json_text)["pages"]
+
+        descriptions = []
+        for p in update_history:
+            descriptions.append(f"""{p["date"]}: {p["content"]}""")
+        description = "\n---------\n".join(descriptions)
+        embed = helpers.default_embed()
+        embed.description = description
+        await ctx.send(embed=embed)
 
     # @commands.command(name="kick")
     # async def selfkick(self, ctx):
@@ -210,6 +239,9 @@ class Core(commands.Cog):
     #     self.bot.cursor.execute("commit")
     #     await ctx.send(f"{target_user.name} will automagically be zapped from any VC in {time_string}.")
 
+    #endregion
+
+    #region Command functions
     async def vc_sleep_timer(self, time_now):
         self.bot.cursor.execute("SELECT rowid, * FROM sleep_timer ORDER BY time ASC")
         targets = self.bot.cursor.fetchall()
@@ -257,7 +289,9 @@ class Core(commands.Cog):
             return True
         else:
             return False
+    #endregion
 
+    #region Help commands
     # @commands.command(name="ignore.help")
     # async def ignore_help(self, ctx):
     #     if not await self.bot.has_perm(ctx, dm=True): return
@@ -310,6 +344,26 @@ class Core(commands.Cog):
             `c.pfp @HonkBonk`
             youfie
             `c.pfp 565879875647438851`
+            """
+        embed = helpers.help_command_embed(self.bot, description)
+        await ctx.send(embed=embed)
+
+    @commands.command(aliases=["updates.help"])
+    async def updates_help(self, ctx):
+        if not await self.bot.has_perm(ctx, dm=True): return
+        description = """
+            It just tells you what updates I've been making. 
+    
+            **Examples:**
+            `c.updates`
+            `c.updates`
+            `c.updates`
+            `c.updates`
+            `c.updates`
+            `c.updates`
+            `c.updates`
+            `c.updates`
+            `c.updates`
             """
         embed = helpers.help_command_embed(self.bot, description)
         await ctx.send(embed=embed)
@@ -378,11 +432,13 @@ class Core(commands.Cog):
         desc = "Type c.command.help for more info on that command\nE.G `c.role.help`, `c.pat.help`\n" \
                "Note: Don't DM HonkBonk personal things. I can see that."
         await ctx.send(embed=self.bot.create_help(self.bot.core_help_text, desc))
+    #endregion
 
 
 async def setup(bot):
     bot.core_help_text["General"] += [
         "timestamp",
+        "updates",
         "pat",
         "uptime",
         #"kick",
