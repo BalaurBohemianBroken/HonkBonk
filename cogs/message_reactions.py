@@ -65,7 +65,7 @@ class GenericReaction:
     bot: commands.Bot = None
     regex: str = ""
     reaction_chance: float = 0
-    repeat_delay: int = 0
+    repeat_delay: int = 0  # This is an old name. It actually isn't a delay, but a modifier to make it less likely.
     reactions: List[str] = None
     reaction_id: int = 0
     remove_reaction_chance: float = 0.3
@@ -74,19 +74,20 @@ class GenericReaction:
     max_reactions_cooldown: int = 60 * 60 * 12
 
     async def try_react(self, message: discord.Message, cursor):
+        reaction_chance_multiplier = 1
         cursor.execute(
             f"SELECT rowid, * FROM react_timer WHERE reaction_id={self.reaction_id} AND guild={message.guild.id}")
         db_entry = cursor.fetchone()
         current_time = int(time.time())
+
         if db_entry:
             time_since_last_reaction = current_time - db_entry["last_react"]
-            if time_since_last_reaction <= self.repeat_delay:
-                return False
             if db_entry["reactions_today"] >= self.max_reactions_before_cooldown and time_since_last_reaction <= self.max_reactions_cooldown:
                 return False
+            reaction_chance_multiplier = pow(min(time_since_last_reaction / self.repeat_delay, 1), 1/2)
         if not re.match(self.regex, message.content.lower()):
             return False
-        if random.random() > self.reaction_chance:
+        if random.random() > self.reaction_chance * reaction_chance_multiplier:
             return False
 
         reaction = random.choice(self.reactions)
