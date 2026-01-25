@@ -97,8 +97,8 @@ class GenericReaction:
             if time_since_last_reaction <= self.max_reactions_before_cooldown:
                 react_chain = db_entry["reactions_today"] + 1
             cursor.execute(f"UPDATE react_timer"
-                           f"SET last_react={current_time}, reactions_today={react_chain}"
-                           f"WHERE rowid={db_entry['rowid']}")
+                           f" SET last_react={current_time}, reactions_today={react_chain}"
+                           f" WHERE rowid={db_entry['rowid']}")
         else:
             cursor.execute(f"INSERT INTO react_timer VALUES(?,?,?,?)",
                                     (message.guild.id, self.reaction_id, current_time, react_chain))
